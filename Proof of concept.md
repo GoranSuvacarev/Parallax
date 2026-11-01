@@ -1,56 +1,53 @@
-# Parallax: Visual 3-Way Spatial Merge Tool for Game Scenes
 
-> **Academic Project:** Design and Implementation of a System for Semantic and Spatial 3-Way Merging of Video Game Scenes Using the Functional Paradigm  
-> **Tech Stack:** Clojure / ClojureScript (`shadow-cljs`), Node.js, Web/SVG, Godot 4.x  
-> **Status:** Proof of Concept (Early Architectural Design Phase)
+# Parallax: Native 3-Way Spatial Merge Tool for Game Scenes
+
+> **Project outcome:** Design and Implementation of a System for Semantic and Spatial 3-Way Merging of Video Game Scenes 
+> **Tech Stack:** 100% Pure Clojure (JVM, `deps.edn`), JavaFX via `cljfx`, Godot 4.x  
+> **Interface:** Native Desktop GUI Application 
+> **Status:** Proof of Concept
+
+## Chapter 1: Problem Statement: Why Git Fails on Scene Graphs
+
+Standard Version Control Systems (Git/VCS) treat files as flat streams of text lines. However, scenes in modern game engines (such as Godot 4's `.tscn` format) are **hierarchical spatial graphs (Scene Graphs)**.
+
+This mismatch creates three major failure modes in collaborative game development:
+1. **False Textual Conflicts:** If Developer A repositions an enemy in world space, and Developer B modifies that same enemy's movement speed in script parameters, Git reports a text-line collision within the `.tscn` file—even though these changes are semantically disjoint and completely safe to merge automatically.
+2. **Silent Spatial Regressions (Semantic Collisions):** Git lacks geometric awareness. If Developer A places a solid wall at coordinate $(X, Y)$, and Developer B places a doorway at that exact coordinate, Git reports a clean merge. In the running game, the level is broken because two solid physics colliders intersect in the same space.
+3. **Absence of Spatial Context:** Traditional diff utilities only display code lines. Developers have no visual context showing *where* an entity originally sat in the level, *where* it moved, and how that transformation affects nearby geometry.
+
+**Project Parallax Goal:** Build a standalone, pure Clojure desktop application that parses Godot 4 scene files into an immutable Abstract Syntax Tree / Intermediate Representation (AST/IR), runs a property-level 3-way merge, visually detects spatial overlaps, and presents an interactive 2D blueprint desktop GUI for human-in-the-loop conflict resolution.
 
 ---
 
-## Chapter 1: Introduction & Problem Statement: Why Git Fails on Scene Graphs
+## Chapter 2: Macro-Level Architecture (Pure Clojure Desktop)
 
-Standard Version Control Systems (Git/VCS) treat project files as flat sequences of text lines. However, scenes in modern game engines (such as Godot 4's `.tscn` format) are **hierarchical spatial graphs (Scene Graphs)**.
-
-This mismatch leads to three fundamental issues in collaborative game development:
-1. **False Textual Conflicts:** If Developer A repositions an enemy within a level, and Developer B tweaks a script parameter on that same enemy, Git reports a text-line collision within the scene file—even though these changes are semantically disjoint and completely safe to merge automatically.
-2. **Silent Spatial Regressions (Silent Semantic Bugs):** Git lacks geometric awareness. If Developer A moves a wall to coordinate $(X, Y)$, and Developer B places a door at that exact same coordinate, Git performs a successful, clean merge. In the game, this produces a critical bug: two physical colliders overlapping in the exact same spatial volume.
-3. **Absence of Spatial Context:** Conventional diff tools only display text-based diffs. Developers have no visual context showing *where* an entity originally existed in the level, *where* it was moved, or how that transformation impacts nearby level geometry.
-
-**Goal of the Parallax Project:** To design and implement a specialized merge tool that parses scene files into an immutable Abstract Syntax Tree / Intermediate Representation (AST/IR), applies a semantic 3-way merge at the granular property level while preserving node identity, visually detects spatial overlaps, and provides an interactive 2D CAD blueprint viewport in the browser.
-
----
-
-## Chapter 2: Macro-Level System Architecture
-
-The system is designed as a *Headless CLI Bridge* that integrates natively into standard Git workflows via `git mergetool`, backed by a browser-based UI for visual conflict resolution.
+Parallax is invoked directly by Git as an external merge tool (`git mergetool`), running entirely within the JVM without spawning any local web servers or web browsers.
 
 ```text
-[ Git CLI ] (detects a conflict in level.tscn and triggers: git mergetool)
+[ Git CLI ] (invokes tool on conflict: git mergetool)
      │
      ▼
-[ CLI Runner (Node.js / ClojureScript) ]
-     │  1. Reads three file revisions: Base (common ancestor), Ours, and Theirs
-     │  2. Runs a State-Machine Parser to convert .tscn into Clojure EDN maps
-     │  3. Spins up an ephemeral local server and opens the default browser
+[ Parallax CLI Runner (Clojure JVM) ]
+     │  1. Reads Base, Ours, and Theirs .tscn files from disk via clojure.java.io
+     │  2. Runs the State-Machine Parser to convert .tscn into Clojure EDN maps
+     │  3. Executes the 3-Way Merge Engine and AABB spatial collision checks
      ▼
-[ Core Merge Engine (Pure Clojure Functions) ]
-     │  1. Executes the formal decision matrix on every node
-     │  2. Calculates AABB intersections (soft spatial conflict detection)
+[ Native Desktop GUI Window (cljfx / JavaFX) ]
+     │  1. Left Pane: Interactive Scene Tree Hierarchy with conflict status badges
+     │  2. Center Viewport: 2D Spatial Canvas (shows Base ghost wireframes & candidate vectors)
+     │  3. Right Pane: Property Inspector with 1-click resolution buttons
      ▼
-[ Web UI Viewport (Reagent + SVG) ]
-     │  1. Renders a 2D CAD Blueprint of the level in engine-space coordinates
-     │  2. Displays "ghosting" wireframes of past states along with motion vectors
-     │  3. Enables human-in-the-loop spatial resolution via mouse clicks
-     ▼
-[ Serializer back to Disk ]
-     │  1. Reconstructs a valid, clean Godot 4 .tscn file
-     │  2. Shuts down the local server and exits with status code 0 (Conflict Resolved)
+[ User clicks "Save & Resolve" ]
+     │  1. Serializer converts the resolved EDN state back into valid Godot 4 .tscn syntax
+     │  2. Overwrites the target file on disk
+     │  3. Closes the JavaFX window and exits -> Git marks conflict as resolved
 ```
 
 ---
 
-## Chapter 3: Decision Matrix: Per-Node State Machine
+## Chapter 3: Per-Node State Machine Decision Matrix
 
-For every unique entity identifier (`unique_id` or canonical scene path) present across the union of node sets $(Base \cup Ours \cup Theirs)$, the algorithm follows a strictly formalized state machine:
+For every unique entity identifier (`unique_id` or canonical scene path) present across the union of node sets $(Base \cup Ours \cup Theirs)$, the merge engine executes a strictly formalized state machine:
 
 ```text
                       +-------------------------------------------------------------+
@@ -67,7 +64,7 @@ For every unique entity identifier (`unique_id` or canonical scene path) present
             🟢 DELETED                      🔴 STRUCTURAL CONFLICT             v                   v
           (Auto-resolve)                     (Delete/Modify Conflict)     Same data?          Different?
                                                                          (Auto-merge)      🔴 STRUCTURAL
-                                                                                              CONFLIKT
+                                                                                              CONFLICT
                                                      |
                                                      |
                                                      v
@@ -103,7 +100,7 @@ For every unique entity identifier (`unique_id` or canonical scene path) present
 
 ## Chapter 4: System Core: Pure Clojure 3-Way Merge Function
 
-Input states are represented as immutable maps, and the function's output deterministically splits into cleanly merged attributes (`:resolved`) and isolated conflicts (`:conflicts`).
+Because the core engine operates on immutable data structures and pure functions, it runs natively on the JVM with zero external runtime dependencies.
 
 ```clojure
 (ns parallax.core
@@ -115,10 +112,10 @@ Input states are represented as immutable maps, and the function's output determ
    Inputs:
      base, ours, theirs - Clojure maps representing the node's property states
    Output:
-     {:resolved  {...}  ;; Map of cleanly and automatically merged properties
-      :conflicts [...]} ;; Vector of maps detailing conflicting property fields"
+     {:resolved  {...}  ;; Cleanly merged properties
+      :conflicts [...]} ;; Conflicting fields requiring manual resolution"
   [base ours theirs]
-  (let [;; Set union of all property keys present across all three revisions
+  (let [;; Set union of all property keys across all three revisions
         all-keys (set/union (set (keys base))
                             (set (keys ours))
                             (set (keys theirs)))]
@@ -128,7 +125,7 @@ Input states are represented as immutable maps, and the function's output determ
              o (get ours k)
              t (get theirs k)]
          (cond
-           ;; Case 1: No change occurred, or both branches made an IDENTICAL change
+           ;; Case 1: No change occurred, or both branches made an identical change
            (= o t)
            (assoc-in acc [:resolved k] o)
 
@@ -152,19 +149,16 @@ Input states are represented as immutable maps, and the function's output determ
 
 ---
 
-## Chapter 5: Verification Test: Demonstration on a Godot 4 Scene
+## Chapter 5: Verification Test: Real-World Godot 4 Scene Node
 
-Validating the core merge logic against a real-world scenario using node `NPCLeft` (`unique_id = 884256495`) extracted from a 2D top-down shooter game:
+Validating the merge logic against node `NPCLeft` (`unique_id = 884256495`) extracted from my 2D top-down shooter:
 
 ### Scenario:
 * **Base:** Object sits at coordinate `[358.0, 132.0]`, has animation `"default"`, and speed `6.0`.
-* **Ours:** A level designer moves the object in world space to `[400.0, 132.0]`.
-* **Theirs:** A gameplay programmer tunes behavior, changing animation to `"walk"` and speed to `10.0`.
-
-### REPL Execution:
+* **Ours:** Level design change moves the entity in world space to `[400.0, 132.0]`.
+* **Theirs:** Gameplay programming change adjusts animation to `"walk"` and speed to `10.0`.
 
 ```clojure
-;; 1. Define input states (Node AST maps)
 (def base-node
   {:id 884256495
    :name "NPCLeft"
@@ -175,7 +169,7 @@ Validating the core merge logic against a real-world scenario using node `NPCLef
 (def ours-node
   {:id 884256495
    :name "NPCLeft"
-   :position [400.0 132.0]  ;; Spatial change
+   :position [400.0 132.0]  ;; Spatial level change
    :animation "default"
    :speed 6.0})
 
@@ -183,25 +177,22 @@ Validating the core merge logic against a real-world scenario using node `NPCLef
   {:id 884256495
    :name "NPCLeft"
    :position [358.0 132.0]
-   :animation "walk"        ;; Logic change
+   :animation "walk"        ;; Gameplay logic change
    :speed 10.0})
 
-;; 2. Run the pure merge function
+;; Run evaluation:
 (merge-node-3way base-node ours-node theirs-node)
 ```
 
-### Evaluated Output:
-
+### Result:
 ```clojure
-;; Standard line-based Git would declare a textual conflict over this entire block.
-;; Our Core engine recognizes property independence and executes a clean merge:
+;; Textual Git flags this entire block as an unresolvable collision.
+;; Parallax recognizes property independence and executes a clean merge:
 {:resolved
  {:id 884256495
   :name "NPCLeft"
-  :position [400.0 132.0]   ;; <-- Automatically accepted new spatial position
-  :animation "walk"         ;; <-- Cleanly merged logic change from Theirs
-  :speed 10.0}              ;; <-- Cleanly merged speed tuning from Theirs
+  :position [400.0 132.0]   ;; Automatically accepts Ours position
+  :animation "walk"         ;; Automatically merges Theirs animation
+  :speed 10.0}              ;; Automatically merges Theirs speed
  :conflicts []}             ;; Zero conflicts!
 ```
-
-If both branches had changed `:position` to conflicting coordinates, the `:conflicts` vector would return structured data containing the ancestor position alongside both incoming candidate vectors—ready for rendering in the SVG Viewport for spatial selection.
