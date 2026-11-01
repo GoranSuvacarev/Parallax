@@ -1,123 +1,124 @@
 # Parallax: Visual 3-Way Spatial Merge Tool for Game Scenes
- 
-> **Tehnološki stek:** Clojure / ClojureScript (`shadow-cljs`), Node.js, Web/SVG, Godot 4.x  
 
-
----
-
-## Poglavlje 1: Uvod i Problem: Zašto Git Pada na Grafovima Scena?
-
-Standardni sistemi za kontrolu verzija (Git/VCS) posmatraju repozitorijume kao tokove običnih tekstualnih linija. Međutim, scene u savremenim endžinima za video igre (poput Godot 4 formata `.tscn`) su **hijerarhijski prostorni grafovi (Scene Graphs)**.
-
-Ovaj raskorak dovodi do tri fundamentalna problema u timskom razvoju igara:
-1. **Lažni tekstualni konflikti:** Ako Developer A pomeri neprijatelja na mapi, a Developer B promeni parametar skripte tog istog neprijatelja, Git prijavljuje konflikt linija teksta, iako su izmene semantički potpuno disjunktne i bezbedne za spajanje.
-2. **Tihe prostorne regresije (Silent Semantic Bugs):** Git ne poseduje geometrijsku svest. Ako Developer A pomeri zid na koordinatu $(X, Y)$, a Developer B postavi prepreku na isto to mesto, Git izvršava automatski *clean merge*. U igri nastaje bag gde dva fizička objekta kolidiraju u istoj tački prostora.
-3. **Odsustvo prostornog konteksta:** Klasični diff alati prikazuju tekstualne razlike koda. Developer nema vizuelni uvid *gde* se objekat nalazio u ravni nivoa, *gde* je pomeren i kakav to uticaj ima na okolinu.
-
-**Cilj projekta Parallax:** Implementacija specijalizovanog alata koji parsira scene u stablo nepromenljivih podataka (AST/IR), primenjuje trostrano spajanje (3-way merge) na nivou pojedinačnih atributa uz očuvanje stabilnog identiteta čvorova, vizuelno detektuje prostorna preklapanja i pruža 2D CAD blueprint radno okruženje u browseru.
+> **Academic Project:** Design and Implementation of a System for Semantic and Spatial 3-Way Merging of Video Game Scenes Using the Functional Paradigm  
+> **Tech Stack:** Clojure / ClojureScript (`shadow-cljs`), Node.js, Web/SVG, Godot 4.x  
+> **Status:** Proof of Concept (Early Architectural Design Phase)
 
 ---
 
-## Poglavlje 2: Arhitektura Sistema na Makro-Nivou
+## Chapter 1: Introduction & Problem Statement: Why Git Fails on Scene Graphs
 
-Sistem je koncipiran kao *Headless CLI Bridge* koji se prirodno integriše u standardni Git ekosistem putem komande `git mergetool`, uz Web interfejs za rešavanje prostornih konflikata.
+Standard Version Control Systems (Git/VCS) treat project files as flat sequences of text lines. However, scenes in modern game engines (such as Godot 4's `.tscn` format) are **hierarchical spatial graphs (Scene Graphs)**.
+
+This mismatch leads to three fundamental issues in collaborative game development:
+1. **False Textual Conflicts:** If Developer A repositions an enemy within a level, and Developer B tweaks a script parameter on that same enemy, Git reports a text-line collision within the scene file—even though these changes are semantically disjoint and completely safe to merge automatically.
+2. **Silent Spatial Regressions (Silent Semantic Bugs):** Git lacks geometric awareness. If Developer A moves a wall to coordinate $(X, Y)$, and Developer B places a door at that exact same coordinate, Git performs a successful, clean merge. In the game, this produces a critical bug: two physical colliders overlapping in the exact same spatial volume.
+3. **Absence of Spatial Context:** Conventional diff tools only display text-based diffs. Developers have no visual context showing *where* an entity originally existed in the level, *where* it was moved, or how that transformation impacts nearby level geometry.
+
+**Goal of the Parallax Project:** To design and implement a specialized merge tool that parses scene files into an immutable Abstract Syntax Tree / Intermediate Representation (AST/IR), applies a semantic 3-way merge at the granular property level while preserving node identity, visually detects spatial overlaps, and provides an interactive 2D CAD blueprint viewport in the browser.
+
+---
+
+## Chapter 2: Macro-Level System Architecture
+
+The system is designed as a *Headless CLI Bridge* that integrates natively into standard Git workflows via `git mergetool`, backed by a browser-based UI for visual conflict resolution.
 
 ```text
-[ Git CLI ] (detektuje konflikt u level.tscn i poziva: git mergetool)
+[ Git CLI ] (detects a conflict in level.tscn and triggers: git mergetool)
      │
      ▼
 [ CLI Runner (Node.js / ClojureScript) ]
-     │  1. Čita tri verzije fajla: Base (zajednički predak), Ours i Theirs
-     │  2. Pokreće State-Machine Parser i konvertuje .tscn u Clojure EDN
-     │  3. Startuje privremeni lokalni server i automatski otvara browser
+     │  1. Reads three file revisions: Base (common ancestor), Ours, and Theirs
+     │  2. Runs a State-Machine Parser to convert .tscn into Clojure EDN maps
+     │  3. Spins up an ephemeral local server and opens the default browser
      ▼
-[ Core Merge Engine (Čiste Clojure Funkcije) ]
-     │  1. Primenjuje formalnu matricu odlučivanja za svaki čvor
-     │  2. Računa AABB preseke (detekcija mekih prostornih konflikata)
+[ Core Merge Engine (Pure Clojure Functions) ]
+     │  1. Executes the formal decision matrix on every node
+     │  2. Calculates AABB intersections (soft spatial conflict detection)
      ▼
 [ Web UI Viewport (Reagent + SVG) ]
-     │  1. Iscrtava 2D Blueprint nivoa u koordinatnom prostoru igre
-     │  2. Prikazuje "ghosting" senke prethodnog stanja i vektore kretanja
-     │  3. Developer klikom u prostoru bira željenu varijantu
+     │  1. Renders a 2D CAD Blueprint of the level in engine-space coordinates
+     │  2. Displays "ghosting" wireframes of past states along with motion vectors
+     │  3. Enables human-in-the-loop spatial resolution via mouse clicks
      ▼
-[ Serijalizator nazad u Disk ]
-     │  1. Rekonstruiše validan Godot 4 .tscn format
-     │  2. Gasi privremeni server i vraća Git-u status kod 0 (Conflict Resolved)
+[ Serializer back to Disk ]
+     │  1. Reconstructs a valid, clean Godot 4 .tscn file
+     │  2. Shuts down the local server and exits with status code 0 (Conflict Resolved)
 ```
 
 ---
 
-## Poglavlje 3: Matrica Odlučivanja: Per-Node State Machine
+## Chapter 3: Decision Matrix: Per-Node State Machine
 
-Za svaki jedinstveni identifikator čvora (`unique_id` ili stabilna putanja) prisutan u uniji skupova $(Base \cup Ours \cup Theirs)$, algoritam primenjuje strogo formalizovano grananje:
+For every unique entity identifier (`unique_id` or canonical scene path) present across the union of node sets $(Base \cup Ours \cup Theirs)$, the algorithm follows a strictly formalized state machine:
 
 ```text
                       +-------------------------------------------------------------+
-                      |                 Za svaki ID u (Base ∪ Ours ∪ Theirs)        |
+                      |               For each ID in (Base ∪ Ours ∪ Theirs)         |
                       +-------------------------------------------------------------+
                                                      |
                  +-----------------------------------+-----------------------------------+
                  |                                   |                                   |
                  v                                   v                                   v
-          [ Samo u Base ]                      [ U Base i jednoj grani ]           [ Samo u Ours i Theirs ]
-      (Obrisano u obe grane)                  (Jedan obrisao, drugi menjao)           (Oboje dodali novi čvor)
+         [ In Base Only ]                    [ In Base & One Branch ]            [ In Ours & Theirs Only ]
+       (Deleted in both)                   (Deleted in one, modified in other)      (Both added a new node)
                  |                                   |                                   |
                  v                                   v                         +---------+---------+
-          🟢 OBRISANO                       🔴 STRUKTURNI KONFLIKT             v                   v
-          (Auto-resolve)                     (Delete/Modify Conflict)     Isti podaci?        Različiti?
-                                                                         (Auto-merge)      🔴 STRUKTURNI
-                                                                                              KONFLIKT
+            🟢 DELETED                      🔴 STRUCTURAL CONFLICT             v                   v
+          (Auto-resolve)                     (Delete/Modify Conflict)     Same data?          Different?
+                                                                         (Auto-merge)      🔴 STRUCTURAL
+                                                                                              CONFLIKT
                                                      |
                                                      |
                                                      v
                              +-----------------------------------------------+
-                             |    Čvor postoji u sva tri stanja (B, O, T)    |
+                             |      Node exists in all 3 states (B, O, T)    |
                              +-----------------------------------------------+
                                                      |
                  +-------------------+---------------+-------------------+
                  |                   |               |                   |
                  v                   v               v                   v
-           Nisu menjali       Menjao SAMO Ours   Menjao SAMO Theirs   Menjali i Ours i Theirs
+           Neither modified     Modified by Ours ONLY   Modified by Theirs ONLY   Modified by BOTH
                  |                   |               |                   |
                  v                   v               v                   v
-            Zadrži Base          Prihvati Ours   Prihvati Theirs   PROPERTY-LEVEL DIFF
-            (Bez izmene)         (Auto-merge)     (Auto-merge)           |
+             Keep Base          Accept Ours     Accept Theirs   PROPERTY-LEVEL DIFF
+            (No change)         (Auto-merge)     (Auto-merge)            |
                                                                          |
                       +--------------------------------------------------+
                       v
         +---------------------------------------------------------------------------------+
-        |                    Analiza svojstava čvora (Transform, Properties)             |
+        |                 Analyze Individual Properties (Transform, Properties)           |
         +---------------------------------------------------------------------------------+
                       |                                                                   |
                       v                                                                   v
-           Menjali različita polja                                               Menjali isto polje
-     (Npr. Ours menjao Position, Theirs brzinu)                         (Oboje promenili Position na [x,y])
+          Modified Disjoint Properties                                        Modified Identical Property
+       (e.g., Ours changed Pos, Theirs changed Speed)                     (Both modified Position to [x, y])
                       |                                                                   |
                       v                                                                   v
-             🟢 AUTO-MERGE SVOJSTAVA                                             🔴 VREDNOSNI KONFLIKT
-            (Spajaju se obe izmene)                                             (Mora čovek da odabere)
+             🟢 AUTO-MERGE PROPERTIES                                            🔴 VALUE CONFLICT
+            (Both modifications merged)                                         (Requires human resolution)
 ```
 
 ---
 
-## Poglavlje 4: Jezgro Sistema: Čista Clojure 3-Way Merge Funkcija
+## Chapter 4: System Core: Pure Clojure 3-Way Merge Function
 
-Ulaz su nepromenljive mape, a izlaz je deterministički podeljen na automatski spojena polja (`:resolved`) i polja u konfliktu (`:conflicts`).
+Input states are represented as immutable maps, and the function's output deterministically splits into cleanly merged attributes (`:resolved`) and isolated conflicts (`:conflicts`).
 
 ```clojure
 (ns parallax.core
   (:require [clojure.set :as set]))
 
 (defn merge-node-3way
-  "Izvršava semantičko trostrano spajanje svojstava jednog čvora scene.
+  "Performs a semantic 3-way merge on individual node properties.
    
-   Ulaz:
-     base, ours, theirs - Clojure mape koje predstavljaju stanje atributa
-   Izlaz:
-     {:resolved  {...}  ;; Mapa uspešno i automatski spojenih svojstava
-      :conflicts [...]} ;; Lista mapa sa poljima gde je detektovan konflikt"
+   Inputs:
+     base, ours, theirs - Clojure maps representing the node's property states
+   Output:
+     {:resolved  {...}  ;; Map of cleanly and automatically merged properties
+      :conflicts [...]} ;; Vector of maps detailing conflicting property fields"
   [base ours theirs]
-  (let [;; Skup svih ključeva svojstava prisutnih u bilo kojoj od tri verzije
+  (let [;; Set union of all property keys present across all three revisions
         all-keys (set/union (set (keys base))
                             (set (keys ours))
                             (set (keys theirs)))]
@@ -127,19 +128,19 @@ Ulaz su nepromenljive mape, a izlaz je deterministički podeljen na automatski s
              o (get ours k)
              t (get theirs k)]
          (cond
-           ;; Slučaj 1: Nema promene, ili su obe grane postavile IDENTIČNU novu vrednost
+           ;; Case 1: No change occurred, or both branches made an IDENTICAL change
            (= o t)
            (assoc-in acc [:resolved k] o)
 
-           ;; Slučaj 2: Promenu je napravio SAMO 'Ours' (Theirs je nepromenjen u odnosu na Base)
+           ;; Case 2: Changed ONLY by 'Ours' (Theirs matches Base)
            (= t b)
            (assoc-in acc [:resolved k] o)
 
-           ;; Slučaj 3: Promenu je napravio SAMO 'Theirs' (Ours je nepromenjen u odnosu na Base)
+           ;; Case 3: Changed ONLY by 'Theirs' (Ours matches Base)
            (= o b)
            (assoc-in acc [:resolved k] t)
 
-           ;; Slučaj 4: Oba developera su menjala ISTO polje na RAZLIČITE vrednosti -> KONFLIKT
+           ;; Case 4: Both modified the SAME property to DIFFERENT values -> CONFLICT
            :else
            (update acc :conflicts conj {:field   k
                                         :base    b
@@ -151,19 +152,19 @@ Ulaz su nepromenljive mape, a izlaz je deterministički podeljen na automatski s
 
 ---
 
-## Poglavlje 5: Verifikacioni Test: Demonstracija na Godot 4 Sceni
+## Chapter 5: Verification Test: Demonstration on a Godot 4 Scene
 
-Testiranje koncepta na realnom primeru čvora `NPCLeft` (`unique_id = 884256495`) iz 2D top-down pucačine:
+Validating the core merge logic against a real-world scenario using node `NPCLeft` (`unique_id = 884256495`) extracted from a 2D top-down shooter game:
 
 ### Scenario:
-* **Base:** Objekat je na koordinatama `[358.0, 132.0]`, ima animaciju `"default"` i brzinu `6.0`.
-* **Ours:** Developer vrši *level-design* izmenu i pomera objekat na `[400.0, 132.0]`.
-* **Theirs:** Drugi developer radi na balansu mehanike, menja animaciju u `"walk"` i brzinu na `10.0`.
+* **Base:** Object sits at coordinate `[358.0, 132.0]`, has animation `"default"`, and speed `6.0`.
+* **Ours:** A level designer moves the object in world space to `[400.0, 132.0]`.
+* **Theirs:** A gameplay programmer tunes behavior, changing animation to `"walk"` and speed to `10.0`.
 
-### REPL Izvršavanje:
+### REPL Execution:
 
 ```clojure
-;; 1. Definicija ulaznih podataka (AST čvora)
+;; 1. Define input states (Node AST maps)
 (def base-node
   {:id 884256495
    :name "NPCLeft"
@@ -174,7 +175,7 @@ Testiranje koncepta na realnom primeru čvora `NPCLeft` (`unique_id = 884256495`
 (def ours-node
   {:id 884256495
    :name "NPCLeft"
-   :position [400.0 132.0]  ;; Prostorna izmena
+   :position [400.0 132.0]  ;; Spatial change
    :animation "default"
    :speed 6.0})
 
@@ -182,56 +183,25 @@ Testiranje koncepta na realnom primeru čvora `NPCLeft` (`unique_id = 884256495`
   {:id 884256495
    :name "NPCLeft"
    :position [358.0 132.0]
-   :animation "walk"        ;; Logička izmena
+   :animation "walk"        ;; Logic change
    :speed 10.0})
 
-;; 2. Poziv funkcije
+;; 2. Run the pure merge function
 (merge-node-3way base-node ours-node theirs-node)
 ```
 
-### Izlaz iz funkcije (Evaluacija):
+### Evaluated Output:
 
 ```clojure
-;; Git bi na ovom fajlu prijavio tekstualni konflikt.
-;; Naš Core algoritam prepoznaje nezavisnost izmena i vrši savršen clean merge:
+;; Standard line-based Git would declare a textual conflict over this entire block.
+;; Our Core engine recognizes property independence and executes a clean merge:
 {:resolved
  {:id 884256495
   :name "NPCLeft"
-  :position [400.0 132.0]   ;; <-- Automatski prihvaćena nova pozicija
-  :animation "walk"         ;; <-- Automatski spojena nova animacija
-  :speed 10.0}              ;; <-- Automatski spojena nova brzina
- :conflicts []}             ;; 0 konflikata!
+  :position [400.0 132.0]   ;; <-- Automatically accepted new spatial position
+  :animation "walk"         ;; <-- Cleanly merged logic change from Theirs
+  :speed 10.0}              ;; <-- Cleanly merged speed tuning from Theirs
+ :conflicts []}             ;; Zero conflicts!
 ```
 
-Ako bi oba developera promenila `:position` na različite koordinate, polje `:conflicts` bi vratilo struktuirane podatke sa starom i dvema novim pozicijama, spremne za slanje u SVG Viewport radi vizuelnog odabira.
-
----
-
-## Poglavlje 6: Plan Daljeg Razvoja (Inženjerska Mapa Puta)
-
-Razvoj celokupnog seminarskog rada podeljen je u pet diskretnih faza:
-
-### Faza 1: State-Machine Parser i Serijalizator (`.tscn` ⟷ EDN)
-* Implementacija linijskog parsera stanja u ClojureScript-u za Godot 4 format.
-* Mapiranje `[node ...]` deklaracija u kanonski EDN format uz čuvanje hijerarhije (`parent`) i primarnih ključeva (`unique_id`).
-* Implementacija reverznog serijalizatora koji rekonstruiše `.tscn` sintaksu bez oštećenja eksternih resursa (`ext_resource`, `sub_resource`).
-
-### Faza 2: Full Scene Graph Merge Engine
-* Proširenje PoC funkcije sa nivoa pojedinačnog čvora na celokupan graf scene.
-* Rešavanje topoloških promena u stablu (dodavanje novih podstabala, brisanje i *Delete/Modify* konflikti).
-* Podrška za instancirane pod-scene (`Sub-scenes / Prefabs`) po principu crne kutije (*Black-Box Proxy*).
-
-### Faza 3: Modul za Detekciju Prostornih Konflikata (Spatial Engine)
-* Implementacija funkcije za AABB (*Axis-Aligned Bounding Box*) presecanje pravougaonika u 2D ravni.
-* Algoritam za prepoznavanje "mekih" konflikata: označavanje upozorenja kada dva različita objekta nakon automatskog spajanja kolidiraju u prostoru.
-
-### Faza 4: Interaktivni Web UI (Reagent + SVG Blueprint Viewport)
-* Razvoj šematizovanog CAD radnog prostora u browseru korišćenjem nativnog SVG-a (precizno mapiranje Godot koordinata i rotacija).
-* Implementacija "ghosting" tehnike: prikaz originalne pozicije objekta (siva isprekidana linija), pozicije iz `Ours` grane (plavi okvir i vektor) i `Theirs` grane (narandžasti okvir).
-* Interaktivni UX: Korisnik jednim klikom na strelicu ili okvir u 2D prostoru bira koje prostorno rešenje usvaja.
-
-### Faza 5: Git CLI Integracija i Verifikacija
-* Pakovanje alata putem `shadow-cljs` u izvršnu skriptu koja se registruje kao `git mergetool`.
-* Verifikacija i testiranje u praksi na stvarnim scenama 2D top-down pucačine u Godot 4 endžinu.
-* Pisanje završnog teorijskog rada sa komparativnom analizom i merenjem efikasnosti spajanja.
-```
+If both branches had changed `:position` to conflicting coordinates, the `:conflicts` vector would return structured data containing the ancestor position alongside both incoming candidate vectors—ready for rendering in the SVG Viewport for spatial selection.
