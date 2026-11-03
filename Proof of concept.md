@@ -103,7 +103,7 @@ For every unique entity identifier (`unique_id` or canonical scene path) present
 Because the core engine operates on immutable data structures and pure functions, it runs natively on the JVM with zero external runtime dependencies.
 
 ```clojure
-(ns parallax.core
+(ns parallax.core.merge
   (:require [clojure.set :as set]))
 
 (defn merge-node-3way
